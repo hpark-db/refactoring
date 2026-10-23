@@ -4,13 +4,14 @@ import GradeBadge from "./GradeBadge";
 
 const ADMIN_PASSWORD = "cafe1234"; // cafe.py랑 똑같이 맞춰 둘 것
 
-type Member = { id: string; name: string; total: number; points: number; grade: any };
+type Grade = "일반" | "VIP";
+type Member = { id: string; name: string; total: number; points: number; grade: Grade };
 
 export default function App({ members }: { members: Member[] }) {
   const [keyword, setKeyword] = useState("");
 
   // 회원 한 명 카드 (누르면 펼쳐져요)
-  function HoewonCard({ m }: { m: Member }) {
+  function MemberCard({ m }: { m: Member }) {
     const [open, setOpen] = useState(false);
     return (
       <li onClick={() => setOpen(!open)}>
@@ -27,7 +28,7 @@ export default function App({ members }: { members: Member[] }) {
       {keyword === ADMIN_PASSWORD && <button onClick={() => alert("관리자 모드")}>관리자</button>}
       <ul>
         {list.map((m) => (
-          <HoewonCard key={m.id} m={m} />
+          <MemberCard key={m.id} m={m} />
         ))}
       </ul>
     </div>

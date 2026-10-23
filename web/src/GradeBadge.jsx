@@ -1,4 +1,4 @@
-export default function GradeBadge(props) {
-  var color = props.grade == "VIP" ? "gold" : "gray";
-  return <span style={{ color: color }}>{props.grade}</span>;
+export default function GradeBadge({ grade }) {
+  const color = grade === "VIP" ? "gold" : "gray";
+  return <span style={{ color }}>{grade}</span>;
 }
