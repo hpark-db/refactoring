@@ -12,8 +12,6 @@ from grades import Grade
 
 ADMIN_PASSWORD = "cafe1234"  # 사장님 비번 (바꾸면 키오스크도 바꿔야 함)
 
-maechul = 0  # 오늘 매출 (여기저기서 씀)
-
 
 def load_members():
     members = {}
@@ -23,129 +21,142 @@ def load_members():
     return members
 
 
-def saveMembers(m):
+def save_members(members):
     if not os.path.exists("out"):
         os.mkdir("out")
-    f = open("out/members.csv", "w", encoding="utf-8", newline="")
-    w = csv.writer(f)
-    w.writerow(["id", "name", "birth", "total", "points", "grade"])
-    for k in m:
-        a = m[k]
-        w.writerow([a["id"], a["name"], a["birth"], a["total"], a["points"], a["grade"]])
-    f.close()
+    with open("out/members.csv", "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["id", "name", "birth", "total", "points", "grade"])
+        for m in members.values():
+            w.writerow([m["id"], m["name"], m["birth"], m["total"], m["points"], m["grade"]])
 
 
 def reset_points(password):
     # 관리자용: 모든 회원 포인트를 0으로 (절대 쓰지 마세요)
     if password == ADMIN_PASSWORD:
-        m = load_members()
-        for k in m:
-            m[k]["points"] = "0"
-        saveMembers(m)
+        members = load_members()
+        for m in members.values():
+            m["points"] = "0"
+        save_members(members)
+
+
+def usable_points(requested, balance):
+    # 가진 포인트까지만, 1,000점 미만이면 못 써요
+    use = requested
+    if use > 0:
+        if use > balance:
+            use = balance
+        if use < 1000:
+            use = 0
+    return use
+
+
+def gets_birthday_coupon(member, order_date, amount, used_coupons):
+    # 생일이 있는 달 첫 주문, 5,000원 이상
+    month = order_date[5:7]
+    return (
+        member["birth"][5:7] == month
+        and (member["id"] + month) not in used_coupons
+        and amount >= 5000
+    )
+
+
+def earn_points(base, grade, order_date):
+    # 일반 1%, VIP 3%, 2020-12-25는 두 배
+    if grade == "VIP":
+        earned = int(base * 0.03)
+    else:
+        earned = int(base * 0.01)
+    if order_date == "2020-12-25":
+        earned = earned * 2  # 크리스마스 이벤트
+    return earned
+
+
+def print_guest_receipt(order_date, amount):
+    print(order_date, "비회원")
+    print("  주문 금액:", amount, "원")
+    print("  결제 금액:", amount, "원")
+    print("-" * 30)
+
+
+def print_member_receipt(order_date, member, amount, coupon, use, paid, earned, balance):
+    print(order_date, member["name"], "님 (", member["grade"], ")")
+    print("  주문 금액:", amount, "원")
+    if coupon:
+        print("  생일 쿠폰: -3000 원")
+    print("  포인트 사용:", -use, "점")
+    print("  결제 금액:", paid, "원")
+    print("  적립:", earned, "점 (일반 1%, VIP 3%)")
+    print("  남은 포인트:", balance, "점")
+    if member["grade"] != "VIP":
+        print("  VIP까지", 100000 - int(member["total"]), "원 남았어요")
+    print("-" * 30)
+
+
+def process_order(order, members, used_coupons):
+    """주문 한 건을 처리해요. (결제 금액, 적립 포인트)를 돌려줘요."""
+    amount = int(order["amount"])
+    member_id = order["member_id"]
+    if member_id == "":
+        # 비회원
+        print_guest_receipt(order["date"], amount)
+        return amount, 0
+
+    member = members[member_id]
+    balance = int(member["points"])
+    use = usable_points(int(order["use_points"]), balance)
+
+    coupon = gets_birthday_coupon(member, order["date"], amount, used_coupons)
+    if coupon:
+        used_coupons.append(member_id + order["date"][5:7])
+        paid = amount - 3000 - use
+        # CAFE-5: 쿠폰을 쓴 날은 깎기 전 금액(amount)으로 적립해요. 버그지만 동작은 그대로 둬요.
+        earned = earn_points(amount, member["grade"], order["date"])
+    else:
+        paid = amount - use
+        earned = earn_points(paid, member["grade"], order["date"])
+
+    balance = balance - use + earned
+    member["points"] = str(balance)
+    member["total"] = str(int(member["total"]) + paid)
+    if int(member["total"]) >= 100000:
+        member["grade"] = "VIP"
+    print_member_receipt(order["date"], member, amount, coupon, use, paid, earned, balance)
+    return paid, earned
+
+
+def write_report(order_count, sales, earned_total, vip_count):
+    with open("out/report.txt", "w", encoding="utf-8") as rep:
+        rep.write("동네카페 마감 보고\n")
+        rep.write("주문 수: " + str(order_count) + "건\n")
+        rep.write("매출: " + str(sales) + "원\n")
+        rep.write("적립 포인트: " + str(earned_total) + "점\n")
+        rep.write("VIP 회원: " + str(vip_count) + "명 (기준 누적 100000원)\n")
+        rep.write("적립률: 일반 1%, VIP 3%\n")
 
 
 def run():
-    global maechul
-    m = load_members()
-    f = open("data/orders.csv", encoding="utf-8")
-    r = csv.DictReader(f)
-    gunsu = 0
-    jeoklip_hap = 0
-    sseun_kupon = []
+    members = load_members()
+    order_count = 0
+    sales = 0
+    earned_total = 0
+    used_coupons = []
     print("=" * 30)
     print("  동네카페 영수증")
     print("=" * 30)
-    for o in r:
-        gunsu = gunsu + 1
-        amt = int(o["amount"])
-        mid = o["member_id"]
-        if mid == "":
-            # 비회원
-            gyeolje = amt
-            maechul = maechul + gyeolje
-            print(o["date"], "비회원")
-            print("  주문 금액:", amt, "원")
-            print("  결제 금액:", gyeolje, "원")
-            print("-" * 30)
-            continue
-        a = m[mid]
-        tmp = int(a["points"])
-        use = int(o["use_points"])
-        if use > 0:
-            if use > tmp:
-                use = tmp
-            if use < 1000:
-                use = 0
-        mon = o["date"][5:7]
-        if a["birth"][5:7] == mon and (mid + mon) not in sseun_kupon and amt >= 5000:
-            # 생일 쿠폰
-            sseun_kupon.append(mid + mon)
-            gyeolje = amt - 3000 - use
-            if a["grade"] == "VIP":
-                jeoklip = int(amt * 0.03)
-            else:
-                jeoklip = int(amt * 0.01)
-            if o["date"] == "2020-12-25":
-                jeoklip = jeoklip * 2  # 크리스마스 이벤트
-            tmp = tmp - use + jeoklip
-            a["points"] = str(tmp)
-            a["total"] = str(int(a["total"]) + gyeolje)
-            if int(a["total"]) >= 100000:
-                a["grade"] = "VIP"
-            maechul = maechul + gyeolje
-            jeoklip_hap = jeoklip_hap + jeoklip
-            print(o["date"], a["name"], "님 (", a["grade"], ")")
-            print("  주문 금액:", amt, "원")
-            print("  생일 쿠폰: -3000 원")
-            print("  포인트 사용:", -use, "점")
-            print("  결제 금액:", gyeolje, "원")
-            print("  적립:", jeoklip, "점 (일반 1%, VIP 3%)")
-            print("  남은 포인트:", tmp, "점")
-            if a["grade"] != "VIP":
-                print("  VIP까지", 100000 - int(a["total"]), "원 남았어요")
-            print("-" * 30)
-        else:
-            gyeolje = amt - use
-            if a["grade"] == "VIP":
-                jeoklip = int(gyeolje * 0.03)
-            else:
-                jeoklip = int(gyeolje * 0.01)
-            if o["date"] == "2020-12-25":
-                jeoklip = jeoklip * 2  # 크리스마스 이벤트
-            tmp = tmp - use + jeoklip
-            a["points"] = str(tmp)
-            a["total"] = str(int(a["total"]) + gyeolje)
-            if int(a["total"]) >= 100000:
-                a["grade"] = "VIP"
-            maechul = maechul + gyeolje
-            jeoklip_hap = jeoklip_hap + jeoklip
-            print(o["date"], a["name"], "님 (", a["grade"], ")")
-            print("  주문 금액:", amt, "원")
-            print("  포인트 사용:", -use, "점")
-            print("  결제 금액:", gyeolje, "원")
-            print("  적립:", jeoklip, "점 (일반 1%, VIP 3%)")
-            print("  남은 포인트:", tmp, "점")
-            if a["grade"] != "VIP":
-                print("  VIP까지", 100000 - int(a["total"]), "원 남았어요")
-            print("-" * 30)
-    f.close()
+    with open("data/orders.csv", encoding="utf-8") as f:
+        for order in csv.DictReader(f):
+            order_count += 1
+            paid, earned = process_order(order, members, used_coupons)
+            sales += paid
+            earned_total += earned
     try:
-        saveMembers(m)
-    except:
+        save_members(members)
+    except Exception:
         pass
     time.sleep(1)  # 지우지 마시오!!! (왜인지는 모름)
-    v = 0
-    for k in m:
-        if m[k]["grade"] == Grade.VIP.value:
-            v = v + 1
-    rep = open("out/report.txt", "w", encoding="utf-8")
-    rep.write("동네카페 마감 보고\n")
-    rep.write("주문 수: " + str(gunsu) + "건\n")
-    rep.write("매출: " + str(maechul) + "원\n")
-    rep.write("적립 포인트: " + str(jeoklip_hap) + "점\n")
-    rep.write("VIP 회원: " + str(v) + "명 (기준 누적 100000원)\n")
-    rep.write("적립률: 일반 1%, VIP 3%\n")
-    rep.close()
+    vip_count = sum(1 for m in members.values() if m["grade"] == Grade.VIP.value)
+    write_report(order_count, sales, earned_total, vip_count)
     print("마감 끝. out/members.csv, out/report.txt 를 확인하세요")
 
 
