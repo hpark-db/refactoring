@@ -171,4 +171,5 @@ def run2():
     print("새 마감 준비 중...", len(members), "명")
 
 
-run()
+if __name__ == "__main__":
+    run()
