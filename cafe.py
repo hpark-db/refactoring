@@ -15,18 +15,7 @@ ADMIN_PASSWORD = "cafe1234"  # 사장님 비번 (바꾸면 키오스크도 바�
 maechul = 0  # 오늘 매출 (여기저기서 씀)
 
 
-def hoewon_bulleogi():
-    m = {}
-    f = open("data/members.csv", encoding="utf-8")
-    r = csv.DictReader(f)
-    for row in r:
-        m[row["id"]] = row
-    f.close()
-    return m
-
-
 def load_members():
-    # 회원 불러오기 새 버전 (2021) - 위에 거랑 같은 일인데 일단 둠
     members = {}
     with open("data/members.csv", encoding="utf-8") as f:
         for row in csv.DictReader(f):
@@ -49,7 +38,7 @@ def saveMembers(m):
 def reset_points(password):
     # 관리자용: 모든 회원 포인트를 0으로 (절대 쓰지 마세요)
     if password == ADMIN_PASSWORD:
-        m = hoewon_bulleogi()
+        m = load_members()
         for k in m:
             m[k]["points"] = "0"
         saveMembers(m)
@@ -57,7 +46,7 @@ def reset_points(password):
 
 def run():
     global maechul
-    m = hoewon_bulleogi()
+    m = load_members()
     f = open("data/orders.csv", encoding="utf-8")
     r = csv.DictReader(f)
     gunsu = 0
@@ -92,10 +81,6 @@ def run():
             # 생일 쿠폰
             sseun_kupon.append(mid + mon)
             gyeolje = amt - 3000 - use
-            # if a["grade"] == "VIP":
-            #     jeoklip = int(amt * 0.05)  # 2019년 VIP 5% (너무 많이 줘서 내림)
-            # else:
-            #     jeoklip = int(amt * 0.02)
             if a["grade"] == "VIP":
                 jeoklip = int(amt * 0.03)
             else:
@@ -109,7 +94,6 @@ def run():
                 a["grade"] = "VIP"
             maechul = maechul + gyeolje
             jeoklip_hap = jeoklip_hap + jeoklip
-            # print("여기까지 옴!!!!", a)
             print(o["date"], a["name"], "님 (", a["grade"], ")")
             print("  주문 금액:", amt, "원")
             print("  생일 쿠폰: -3000 원")
@@ -163,12 +147,6 @@ def run():
     rep.write("적립률: 일반 1%, VIP 3%\n")
     rep.close()
     print("마감 끝. out/members.csv, out/report.txt 를 확인하세요")
-
-
-def run2():
-    # 새 마감 (2021년에 만들다 말았음. 아직 안 씀)
-    members = load_members()
-    print("새 마감 준비 중...", len(members), "명")
 
 
 if __name__ == "__main__":
